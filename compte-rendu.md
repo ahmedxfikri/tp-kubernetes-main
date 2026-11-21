@@ -5,6 +5,7 @@ Ahmed Fikri : BUT3 Info, TD1
 Dépôt : https://github.com/ahmedxfikri/tp-kubernetes-main
 
 
+
 ## Préparation
 
 ```powershell
@@ -97,6 +98,10 @@ kubectl exec -n database statefulset/mysql -- sh -c "env | grep -E '^MYSQL_(DATA
 ![MySQL pods, PVC et service](img/04a-mysql-ressources.png)
 
 Le pod `mysql-0` est `Running 1/1`, le PVC `mysql-data-mysql-0` est `Bound` (1Gi) et le Service `mysql` existe sur le port 3306. Le Service est de type headless (`clusterIP: None`), ce qui va bien avec un StatefulSet.
+
+Variables d'environnement du pod MySQL (`kubectl exec ... env | grep MYSQL_`) :
+
+![Variables MySQL](img/04-mysql-environnement.png)
 
 ### WordPress (namespace `middle`)
 
@@ -207,6 +212,10 @@ while true; do wget -q -O- http://mon-application.default.svc.cluster.local; don
 
 Le pod `simulation-utilisateur` démarre, et la boucle `wget` tourne : on voit en continu la page d'accueil de nginx défiler.
 
+`kubectl get hpa mon-application -w` dans un second terminal pendant la charge :
+
+![HPA sous charge](img/08-hpa-charge.png)
+
 **Q9 : le HPA fonctionne-t-il comme souhaité ?**
 Il est bien configuré et actif : `cpu: 0%/30%`, minimum 1 pod, maximum 3. Une page statique de nginx consomme très peu de CPU, donc pour franchir le seuil de 15m par pod il faut une charge forte (plusieurs pods de charge en parallèle). Si le seuil n'est pas atteint, le réglage à ajuster est `averageUtilization` (le baisser, par exemple à 20) ou la request CPU du Deployment.
 
@@ -253,6 +262,10 @@ kubectl port-forward -n prod-app svc/hello-kubernetes 8080:8080
 
 Les 3 pods de la version initiale (`5c45f7856c`) sont `Running 1/1` et le port-forward est lancé. On voit aussi un quatrième pod en `Error` avec plusieurs redémarrages : il vient d'un essai précédent avec la version finale (voir plus bas).
 
+Page de l'application via le port-forward, sur `http://localhost:8080` :
+
+![Page hello-kubernetes](img/10-hello-kubernetes.png)
+
 **Que remarque-t-on sur « Pod Name » ?**
 `kubectl port-forward svc/...` ne fait pas d'équilibrage de charge. kubectl choisit un seul pod derrière le Service au moment d'ouvrir le tunnel et envoie tout dessus, donc le nom du pod reste en général le même à chaque rafraîchissement, même avec 3 replicas. Le Service, lui, répartit bien le trafic entre les pods (via kube-proxy), mais le port-forward court-circuite ça. Pour le vérifier depuis l'intérieur du cluster :
 
@@ -290,12 +303,28 @@ kubectl apply -f TP/partie5/app-deployment.yml
 
 **Point de blocage.** Avec la version finale, le nouveau pod (`hello-kubernetes-5b9b4d9c56-...`) ne passe pas à `1/1` : il reste en `0/1` et redémarre (`RESTARTS` qui augmente, statut `Error` sur la capture 10a). Les 3 anciens pods continuent de tourner, ce qui est le comportement attendu avec `maxUnavailable: 0` : le RollingUpdate ne supprime pas les anciens pods tant que le nouveau n'est pas prêt, donc il n'y a pas de coupure.
 
+Pour regarder ce qui se passe sur ce pod, j'utilise `describe` (section `Events`) et les logs du conteneur précédent :
+
+```powershell
+kubectl describe pod hello-kubernetes-5b9b4d9c56-fsjz5 -n prod-app
+kubectl logs hello-kubernetes-5b9b4d9c56-fsjz5 -n prod-app --previous
+```
+
+![Events du pod](img/11-probes-evenements.png)
+
 **Rôle de la readiness dans un RollingUpdate sans interruption ?**
 Kubernetes ne retire un ancien pod que quand le nouveau est `Ready`. Sans readiness probe, un pod est « prêt » dès que son conteneur démarre, même si l'appli n'est pas encore capable de répondre, et le trafic arriverait trop tôt (erreurs 503) alors que les anciens pods sont déjà supprimés. Avec `maxSurge: 1` et `maxUnavailable: 0`, on garde toujours au moins 3 pods prêts. Ce qu'on a vu sur la capture 12b (le nouveau pod à `0/1` pendant que les anciens restent `1/1`) illustre exactement ça.
 
 ### 5. Arrêt gracieux (preStop)
 
-Le conteneur a un hook `preStop` : `sleep 10`.
+Le conteneur a un hook `preStop` : `sleep 10`. Je supprime un pod dans un terminal et j'observe son statut dans un autre :
+
+```powershell
+kubectl delete pod hello-kubernetes-5c45f7856c-gm2jf -n prod-app
+kubectl get pods -n prod-app
+```
+
+![Pod en Terminating](img/13-prestop-terminating.png)
 
 **À quoi sert le `preStop` ? Que ferait une vraie appli pendant ce temps ?**
 Il s'exécute avant l'envoi du SIGTERM. Pendant ce délai le pod est déjà retiré des Services, mais il peut finir son travail. Dans une vraie application : terminer les requêtes en cours, arrêter d'accepter de nouvelles connexions, vider les files de messages ou jobs, fermer proprement les connexions à la base de données, écrire ses logs. Le délai laisse aussi le temps à la suppression des endpoints de se propager pour qu'aucune nouvelle requête n'arrive pendant l'arrêt.
@@ -310,6 +339,8 @@ kubectl debug -it <pod> -n prod-app --image=busybox:1.36 --target=hello-kubernet
 # dans le shell de debug :
 wget -O - http://localhost:8080
 ```
+
+![Conteneur de debug et wget](img/15-debug-wget.png)
 
 **Pourquoi c'est mieux que d'avoir tous les outils dans l'image ?**
 Moins d'outils dans l'image de prod, c'est une surface d'attaque plus petite (un attaquant n'a pas de `curl` ou de shell complet sous la main), une image plus légère et avec moins de failles à corriger. L'image reste la même partout, on ne la reconstruit pas pour déboguer. Et les outils n'existent que le temps du diagnostic, dans un conteneur éphémère qui disparaît avec le pod, sans toucher au conteneur de l'application. L'usage reste contrôlé par les droits RBAC.
