@@ -55,11 +55,25 @@ kubectl apply -f TP/front/nginx-deployment.yml
 
 ### Captures à fournir
 
-1. `kubectl get namespaces` avant l'application des trois manifests.
-2. `kubectl get namespaces` après application.
-3. La page NGINX affichée sur `http://localhost:8080`.
+| No | Preuve attendue | Nom du fichier prévu |
+|---|---|---|
+| 1 | `kubectl get namespaces` avant la création des namespaces du TP | `img/01-namespaces-avant.png` |
+| 2 | `kubectl get namespaces` après leur création | `img/02-namespaces-apres.png` |
+| 3 | Page `Welcome to nginx!` sur `http://localhost:8080`, barre d'adresse visible | `img/03-nginx-localhost.png` |
+| 4 | Variables MySQL affichées depuis le pod MySQL | `img/04-mysql-environnement.png` |
+| 5 | Variables WordPress affichées depuis le pod WordPress | `img/05-wordpress-environnement.png` |
+| 6 | Page d'installation WordPress sur `http://localhost:8080`, barre d'adresse visible | `img/06-wordpress-installation.png` |
+| 7 | CronJob créé et état initial de l'HPA | `img/07-cronjob-hpa.png` |
+| 8 | Charge BusyBox et `kubectl get hpa -w` visibles côte à côte; l'HPA doit montrer les réplicas supplémentaires s'ils sont déclenchés | `img/08-hpa-charge.png` |
+| 9 | Pods, PVC et Services prêts après le déploiement complet de WordPress | `img/09-ressources-wordpress.png` |
+| 10 | Page Hello Kubernetes sur `http://localhost:8080`, nom du pod et barre d'adresse visibles | `img/10-hello-kubernetes.png` |
+| 11 | Événements de la readiness probe dans `kubectl describe pod` | `img/11-probes-evenements.png` |
+| 12 | Remplacement des pods observé avec `kubectl get pods -n prod-app -w` | `img/12-rolling-update.png` |
+| 13 | État `Terminating` pendant l'exécution du hook `preStop` | `img/13-prestop-terminating.png` |
+| 14 | Échec attendu de `curl` absent de l'image applicative | `img/14-curl-absent.png` |
+| 15 | Réponse `wget` depuis le conteneur de débogage éphémère | `img/15-debug-wget.png` |
 
-Les images de `img/` sont des schémas de consigne et non des preuves d'exécution du cluster.
+Pour les captures 3, 6 et 10, laisser tourner la commande `kubectl port-forward` correspondante et conserver la barre d'adresse visible. Les images actuelles de `img/` sont les schémas fournis par le sujet, pas des preuves d'exécution. Ne marquer une capture comme obtenue qu'après l'avoir enregistrée depuis une exécution réelle.
 
 ## Partie 2 — MySQL, WordPress et reverse proxy
 
