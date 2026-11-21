@@ -1,85 +1,89 @@
-# TP Kubernetes — compte-rendu des parties 1 à 5
+# TP Kubernetes : compte-rendu
 
-> Les valeurs de mot de passe de ces manifests sont des valeurs fictives pour le TP. Un Secret Kubernetes encodé en base64 n'est pas chiffré par ce seul encodage : ne pas réutiliser ces valeurs en production.
+Ahmed Fikri : BUT3 Info, TD1
 
-## Préparation et conventions
+Dépôt : https://github.com/ahmedxfikri/tp-kubernetes-main
 
-Le dossier `TP` contient les manifests à appliquer. Les ressources namespacées indiquent explicitement leur namespace dans leur metadata. Le PV WordPress est une ressource globale au cluster et n'a donc pas de namespace.
 
-Commandes de préparation et de contrôle :
+## Préparation
 
 ```powershell
 docker info
 minikube start --driver=docker
 minikube status
 kubectl version
-kubectl get nodes
 ```
 
-Le cluster et Docker doivent être démarrés avant l'application des manifests. Pour supprimer une ressource créée par un manifest, utiliser `kubectl delete -f <fichier.yml>`; pour supprimer un namespace de test, `kubectl delete namespace <nom>`.
+---
 
-## Partie 1 — namespaces et reverse proxy NGINX
+## Partie 1 : namespaces et NGINX
 
-### Déploiement
+### Les namespaces
 
-Les trois namespaces sont définis dans `TP/front/namespace.yml`, `TP/middle/namespace.yml` et `TP/database/namespace.yml`. Les ressources front sont dans `TP/front`. Le Service `nginx` reçoit sur le port TCP 8383 et sélectionne les pods `app: reverse-proxy` sur le port 80. Le Deployment utilise deux réplicas de `nginx:1.27.1-alpine`.
+Je crée les trois namespaces avec des fichiers YAML (`TP/front/namespace.yml`, `TP/middle/namespace.yml`, `TP/database/namespace.yml`), pas avec `kubectl create`.
+
+Avant, le cluster ne contient que les namespaces par défaut :
 
 ```powershell
 kubectl get namespaces
+```
+
+![Namespaces avant](img/01-namespaces-avant.png)
+
+Puis je les déploie et je revérifie (je regarde aussi un namespace avec `kubectl describe namespace front`) :
+
+```powershell
 kubectl apply -f TP/front/namespace.yml
 kubectl apply -f TP/middle/namespace.yml
 kubectl apply -f TP/database/namespace.yml
 kubectl describe namespace front
 kubectl get namespaces
+```
+
+![Namespaces après](img/02-namespaces-apres.png)
+
+On voit bien `front`, `middle` et `database`. Il y a aussi `prod-app`, que j'avais déjà créé pour la partie 5.
+
+### NGINX (page par défaut)
+
+`TP/front/nginx-deployment-partie1.yml` : Deployment `nginx`, 2 replicas, label `app: reverse-proxy`, image `nginx:1.27.1-alpine`.
+`TP/front/nginx-service.yml` : Service `nginx` en TCP, port 8383 vers le port 80 des pods `app: reverse-proxy`.
+
+```powershell
 kubectl apply -f TP/front/nginx-deployment-partie1.yml
 kubectl apply -f TP/front/nginx-service.yml
-kubectl get events -n front --sort-by=.metadata.creationTimestamp
 kubectl get pods -n front
-kubectl describe pods -n front
 kubectl port-forward -n front svc/nginx 8080:8383
 ```
 
-Les deux commandes pour consulter les événements et l'état de démarrage sont `kubectl get events -n front` et `kubectl describe pods -n front` (ou `kubectl get pods -n front` pour une vue synthétique). Ouvrir ensuite `http://localhost:8080`.
+![Déploiement nginx](img/03a-nginx-deploiement-partie1.png)
 
-Dans cette première étape, le manifeste `nginx-deployment-partie1.yml` laisse NGINX servir sa page par défaut. Pour la partie 2, le Deployment final `nginx-deployment.yml` ajoute le montage de la ConfigMap et le reverse proxy WordPress; il remplace le Deployment de l'étape 1 :
+Les deux pods sont `Running` en `1/1`. (Les mentions « unchanged » viennent du fait que j'avais déjà appliqué les fichiers une première fois avant de faire la capture.)
 
-```powershell
-kubectl apply -f TP/front/nginx-configmap.yml
-kubectl apply -f TP/front/nginx-deployment.yml
-```
+![Page nginx](img/03-nginx-localhost.png)
 
-### Questions
+La page « Welcome to nginx! » s'affiche sur `http://localhost:8080`.
 
-- **Pointillés violets (schéma Q7)** : ils regroupent les pods gérés ensemble par le contrôleur de déploiement (Deployment/ReplicaSet); ce n'est pas un réseau séparé.
-- **Pointillés rouges (schéma Q8)** : ils délimitent le namespace logique dans lequel les ressources de l'application sont isolées. Les namespaces ne constituent pas, à eux seuls, une barrière réseau.
+**Q4 : les 2 commandes pour vérifier les events et le démarrage ?**
+`kubectl get events -n front` pour les événements du namespace, et `kubectl get pods -n front` pour voir que les pods sont `Running` et `READY 1/1` (on peut aussi faire `kubectl describe pods -n front` pour le détail).
 
-### Captures à fournir
+**Q7 : les pointillés violets ?**
+Ils entourent les deux pods qui ont le label `app: reverse-proxy`. C'est le Deployment `nginx` : c'est lui (via son ReplicaSet) qui s'assure qu'il y a toujours 2 pods et qui les recrée si un tombe. C'est le développeur ou le DevOps qui s'en occupe.
 
-| No | Preuve attendue | Nom du fichier prévu |
-|---|---|---|
-| 1 | `kubectl get namespaces` avant la création des namespaces du TP | `img/01-namespaces-avant.png` |
-| 2 | `kubectl get namespaces` après leur création | `img/02-namespaces-apres.png` |
-| 3 | Page `Welcome to nginx!` sur `http://localhost:8080`, barre d'adresse visible | `img/03-nginx-localhost.png` |
-| 4 | Variables MySQL affichées depuis le pod MySQL | `img/04-mysql-environnement.png` |
-| 5 | Variables WordPress affichées depuis le pod WordPress | `img/05-wordpress-environnement.png` |
-| 6 | Page d'installation WordPress sur `http://localhost:8080`, barre d'adresse visible | `img/06-wordpress-installation.png` |
-| 7 | CronJob créé et état initial de l'HPA | `img/07-cronjob-hpa.png` |
-| 8 | Charge BusyBox et `kubectl get hpa -w` visibles côte à côte; l'HPA doit montrer les réplicas supplémentaires s'ils sont déclenchés | `img/08-hpa-charge.png` |
-| 9 | Pods, PVC et Services prêts après le déploiement complet de WordPress | `img/09-ressources-wordpress.png` |
-| 10 | Page Hello Kubernetes sur `http://localhost:8080`, nom du pod et barre d'adresse visibles | `img/10-hello-kubernetes.png` |
-| 11 | Événements de la readiness probe dans `kubectl describe pod` | `img/11-probes-evenements.png` |
-| 12 | Remplacement des pods observé avec `kubectl get pods -n prod-app -w` | `img/12-rolling-update.png` |
-| 13 | État `Terminating` pendant l'exécution du hook `preStop` | `img/13-prestop-terminating.png` |
-| 14 | Échec attendu de `curl` absent de l'image applicative | `img/14-curl-absent.png` |
-| 15 | Réponse `wget` depuis le conteneur de débogage éphémère | `img/15-debug-wget.png` |
+**Q8 : les pointillés rouges ?**
+Ils entourent tout ce qu'il y a dans le namespace `front` (le Service et les pods). C'est le namespace, géré par l'administrateur du cluster. Il sert à isoler les ressources, mais à lui seul il ne bloque pas le réseau entre namespaces.
 
-Pour les captures 3, 6 et 10, laisser tourner la commande `kubectl port-forward` correspondante et conserver la barre d'adresse visible. Les images actuelles de `img/` sont les schémas fournis par le sujet, pas des preuves d'exécution. Ne marquer une capture comme obtenue qu'après l'avoir enregistrée depuis une exécution réelle.
+---
 
-## Partie 2 — MySQL, WordPress et reverse proxy
+## Partie 2 : MySQL, WordPress et reverse proxy
 
-### MySQL
+### MySQL (namespace `database`)
 
-MySQL est déployé dans `database`. Le StatefulSet possède un volume persistant créé par son `volumeClaimTemplates` (1 Gio); le Service headless `mysql` assure son identité réseau stable. Les mêmes identifiants fictifs sont définis dans le Secret `mysql-secret` de `database` et dans une copie homonyme du Secret de `middle`. La ConfigMap est également copiée dans `middle` : une ConfigMap ou un Secret ne peut être référencé directement que dans son propre namespace.
+Fichiers dans `TP/database/` :
+- `mysql-secret.yml` : Secret avec `MYSQL_PASSWORD` et `MYSQL_ROOT_PASSWORD` (valeurs en base64) ;
+- `mysql-configmap.yml` : ConfigMap avec `MYSQL_USER` et `MYSQL_DATABASE=wordpress` ;
+- `mysql-statefulset.yml` : StatefulSet `mysql:9.0`, 1 replica, label `app: mysql`, variables prises dans la ConfigMap et le Secret, stockage persistant avec un `volumeClaimTemplates` de 1 Gio ;
+- `mysql-service.yml` : Service sur le port 3306.
 
 ```powershell
 kubectl apply -f TP/database/mysql-secret.yml
@@ -87,12 +91,18 @@ kubectl apply -f TP/database/mysql-configmap.yml
 kubectl apply -f TP/database/mysql-service.yml
 kubectl apply -f TP/database/mysql-statefulset.yml
 kubectl get pods,pvc,svc -n database
-kubectl exec -n database statefulset/mysql -- printenv MYSQL_DATABASE MYSQL_USER MYSQL_PASSWORD MYSQL_ROOT_PASSWORD
+kubectl exec -n database statefulset/mysql -- sh -c "env | grep -E '^MYSQL_(DATABASE|USER|PASSWORD|ROOT_PASSWORD)='"
 ```
 
-### WordPress
+![MySQL pods, PVC et service](img/04a-mysql-ressources.png)
 
-Le PV `wordpress-pv` utilise le chemin demandé sur le nœud Minikube. Le PVC et WordPress sont dans `middle`. Le nom DNS complet de MySQL est `mysql.database.svc.cluster.local:3306`.
+Le pod `mysql-0` est `Running 1/1`, le PVC `mysql-data-mysql-0` est `Bound` (1Gi) et le Service `mysql` existe sur le port 3306. Le Service est de type headless (`clusterIP: None`), ce qui va bien avec un StatefulSet.
+
+### WordPress (namespace `middle`)
+
+Fichiers dans `TP/middle/` : `wordpress-pv.yml` (PV 100Mi, ReadWriteMany, `manual`, `/tmp/kubernetes/wordpress`), `wordpress-pvc.yml`, `wordpress-deployment.yml` (image `wordpress:latest`, label `app: blog`, PVC monté dans `/var/www/html`, `WP_HOME` et `WP_SITEURL` sur `http://localhost:8080`), `wordpress-service.yml` (port 80). Le Secret et la ConfigMap MySQL sont recopiés dans `middle` (`mysql-secret.yml`, `mysql-configmap.yml`).
+
+Pour les variables, `WORDPRESS_DB_USER` et `WORDPRESS_DB_NAME` viennent de la ConfigMap, `WORDPRESS_DB_PASSWORD` vient du Secret, et `WORDPRESS_DB_HOST` vaut `mysql.database.svc.cluster.local:3306`.
 
 ```powershell
 kubectl apply -f TP/middle/mysql-secret.yml
@@ -102,103 +112,134 @@ kubectl apply -f TP/middle/wordpress-pvc.yml
 kubectl apply -f TP/middle/wordpress-deployment.yml
 kubectl apply -f TP/middle/wordpress-service.yml
 kubectl get pods,pvc,svc -n middle
-kubectl exec -n middle deployment/wordpress -- printenv WORDPRESS_DB_USER WORDPRESS_DB_NAME WORDPRESS_DB_HOST WORDPRESS_DB_PASSWORD
+kubectl exec -n middle deployment/wordpress -- sh -c "env | grep '^WORDPRESS_DB_'"
 ```
 
-Les étapes WordPress peuvent être appliquées après MySQL. Le PVC doit être `Bound` avant que le pod WordPress puisse démarrer correctement.
+![Variables WordPress](img/05-wordpress-environnement.png)
 
-### NGINX comme reverse proxy
+Les 4 variables sont bien présentes avec les bonnes valeurs.
 
-La ConfigMap NGINX résout WordPress via le DNS inter-namespace `wordpress.middle.svc.cluster.local`. Le Service NGINX est publié localement avec un port-forward :
+![Ressources WordPress](img/09-ressources-wordpress.png)
+
+(La même capture montre aussi `kubectl get pods,pvc,svc -n middle` : le pod WordPress est `Running 1/1`, le PVC `wordpress-pvc` est `Bound` avec le PV `wordpress-pv` en 100Mi RWX/`manual`, et le Service tourne sur le port 80.)
+
+### NGINX en reverse proxy
+
+`TP/front/nginx-configmap.yml` contient le `default.conf` avec `proxy_pass http://wordpress.middle.svc.cluster.local:80`. Le Deployment `TP/front/nginx-deployment.yml` (même nom `nginx`) monte cette ConfigMap dans `/etc/nginx/conf.d/default.conf`.
 
 ```powershell
 kubectl apply -f TP/front/nginx-configmap.yml
 kubectl apply -f TP/front/nginx-deployment.yml
-kubectl apply -f TP/front/nginx-service.yml
+kubectl rollout status deployment/nginx -n front
 kubectl port-forward -n front svc/nginx 8080:8383
 ```
 
-Ouvrir `http://localhost:8080` et compléter l'installation initiale de WordPress si elle s'affiche.
+![Rollout nginx](img/06a-nginx-configmap-rollout.png)
+
+Le Deployment est mis à jour (`successfully rolled out`), puis le port-forward est relancé (l'ancien tunnel pointait vers un pod remplacé).
+
+![Installation WordPress](img/06-wordpress-installation.png)
+
+On arrive sur `http://localhost:8080/wp-admin/install.php`, la page d'installation de WordPress : nginx redirige bien vers le pod WordPress et WordPress arrive à joindre MySQL.
 
 ### Vérifications
 
-- **Les ressources sont-elles dans le bon namespace ?** `kubectl get all -A` affiche les ressources namespacées avec leur namespace; `kubectl get pods,svc,configmap,secret -n <namespace>` permet de vérifier un namespace précis. `kubectl get pv` affiche les PV, qui sont globaux au cluster.
-- **Pourquoi recopier le Secret et la ConfigMap dans `middle` ?** Un pod ne peut référencer que des Secrets et ConfigMaps de son propre namespace. MySQL consomme leurs objets dans `database`; WordPress consomme donc leurs équivalents dans `middle`.
-- **Les pods sont-ils démarrés ?** `kubectl get pods -n <namespace>`; attendre `READY` et `STATUS=Running`.
-- **Comment diagnostiquer un pod en erreur ?** `kubectl get events -n <namespace> --sort-by=.metadata.creationTimestamp`, `kubectl describe pod <pod> -n <namespace>` et `kubectl logs <pod> -n <namespace>`. Pour le conteneur précédent après un redémarrage : `kubectl logs <pod> -n <namespace> --previous`.
+**Les ressources sont-elles dans le bon namespace ? Quelle commande ?**
+`kubectl get pods,svc,configmap,secret -n <namespace>` pour un namespace précis, ou `kubectl get all -A` pour tout voir avec la colonne NAMESPACE. Le PV n'a pas de namespace (il est global au cluster), donc je le regarde avec `kubectl get pv`.
 
-### Captures à fournir
+**Pourquoi la ConfigMap et le Secret MySQL sont dans `middle` ET `database` ?**
+Un pod ne peut utiliser un Secret ou une ConfigMap que s'ils sont dans son propre namespace. MySQL (dans `database`) en a besoin pour créer l'utilisateur et la base, et WordPress (dans `middle`) en a besoin pour se connecter avec les mêmes valeurs. Il faut donc une copie dans chaque namespace. L'inconvénient, c'est qu'il faut penser à modifier les deux si on change une valeur.
 
-1. `kubectl exec` affichant les quatre variables MySQL.
-2. `kubectl exec` affichant les quatre variables WordPress.
-3. La page d'installation de WordPress obtenue à travers le port-forward NGINX.
+**Les pods sont-ils bien démarrés ? Quelle commande ?**
+`kubectl get pods -n <namespace>` : je vérifie `STATUS = Running` et `READY 1/1`. Si ce n'est pas le cas, `kubectl describe pod`.
 
-## Partie 3 — CronJob et HPA
+**Un pod est en erreur : comment voir les events et les logs ?**
+Events : `kubectl get events -n <namespace> --sort-by=.metadata.creationTimestamp` et `kubectl describe pod <pod> -n <namespace>`. Logs : `kubectl logs <pod> -n <namespace>`, avec `--previous` si le conteneur a redémarré.
+
+---
+
+## Partie 3 : CronJob et HPA
 
 ### CronJob
 
-`TP/cronjob.yml` crée un Job toutes les cinq minutes et exécute `date` :
+`TP/cronjob.yml` : CronJob `date`, schedule `*/5 * * * *`, image `busybox:1.36`, commande `date`.
 
 ```powershell
 kubectl apply -f TP/cronjob.yml
 kubectl get cronjobs,jobs,pods
-kubectl logs job/<nom-du-job>
 ```
 
 ### HPA
 
-`TP/application.yml` définit `mon-application` avec requests et limits CPU/mémoire; `TP/hpa-application.yml` cible le Deployment, maintient entre un et trois pods et vise 30 % de CPU moyen par rapport aux requests. Le résultat attendu est l'augmentation du nombre de réplicas lorsque la charge dépasse la cible, puis leur retour vers le minimum lorsque la charge baisse. La création effective dépend des métriques disponibles et de la charge réellement générée.
+- `TP/application.yml` : Deployment `mon-application` (nginx, `containerPort: 80`) avec requests CPU 50m / mémoire 64Mi et limits CPU 200m / mémoire 128Mi. L'image nginx ne donne pas de minimum officiel, j'ai pris des valeurs raisonnables pour un petit serveur statique.
+- `TP/hpa-application.yml` : HPA `mon-application`, entre 1 et 3 pods, cible 30 % de CPU par rapport aux requests (donc 15m par pod, vu que la request est 50m).
 
 ```powershell
 minikube addons enable metrics-server
 kubectl apply -f TP/application.yml
 kubectl expose deployment mon-application --port=80 --type=LoadBalancer
 kubectl apply -f TP/hpa-application.yml
+kubectl get cronjobs,jobs,pods
 kubectl get hpa
-kubectl describe hpa mon-application
-kubectl get pods -w
 ```
 
-Les colonnes usuelles de `kubectl get hpa` sont : `NAME` (HPA), `REFERENCE` (cible), `TARGETS` (métrique actuelle/cible), `MINPODS`, `MAXPODS`, `REPLICAS` (réplicas demandés actuellement) et `AGE`. `TARGETS` peut afficher `<unknown>` tant que Metrics Server n'a pas encore publié de mesures.
+![CronJob et HPA](img/07-cronjob-hpa.png)
 
-Pour générer du trafic, ouvrir un shell BusyBox dans le cluster puis lancer les requêtes vers le Service :
+Le CronJob a déjà lancé 3 jobs, tous `Complete`. Le HPA est actif : `cpu: 0%/30%`, min 1, max 3, 1 replica.
+
+**Q4 : résultat souhaité ?**
+Quand le CPU moyen des pods dépasse 30 % de leur request, l'HPA ajoute des pods (jusqu'à 3) pour ramener la moyenne sous la cible. Quand la charge retombe, il redescend vers 1 pod, mais pas tout de suite : il attend quelques minutes pour éviter de monter et descendre en boucle. Le HPA a besoin de `requests` sur le conteneur et de metrics-server pour lire la consommation.
+
+**Q7 : colonnes de `kubectl get hpa` ?**
+`NAME` (nom du HPA), `REFERENCE` (le Deployment piloté), `TARGETS` (utilisation actuelle / cible, ici `0%/30%`), `MINPODS` et `MAXPODS` (bornes), `REPLICAS` (nombre de pods en ce moment), `AGE`. Si `TARGETS` affiche `<unknown>`, c'est que metrics-server n'a pas encore de mesure.
+
+### Test de charge
 
 ```powershell
 kubectl run -it --rm simulation-utilisateur --image=busybox:1.36 --restart=Never -- /bin/sh
-```
-
-Dans le shell :
-
-```sh
+# dans le shell :
 while true; do wget -q -O- http://mon-application.default.svc.cluster.local; done
 ```
 
-Un simple flux de requêtes HTTP ne garantit pas de consommer assez de CPU pour franchir le seuil. Contrôler `kubectl get hpa -w`, `kubectl top pods` et les événements; le délai de stabilisation de l'HPA est normal.
+![Shell de charge](img/08a-hpa-shell-charge.png)
 
-## Partie 4 — QCM Kubernetes
+![Boucle wget](img/08b-hpa-boucle-wget.png)
 
-| Question | Réponse | Justification |
+Le pod `simulation-utilisateur` démarre, et la boucle `wget` tourne : on voit en continu la page d'accueil de nginx défiler.
+
+**Q9 : le HPA fonctionne-t-il comme souhaité ?**
+Il est bien configuré et actif : `cpu: 0%/30%`, minimum 1 pod, maximum 3. Une page statique de nginx consomme très peu de CPU, donc pour franchir le seuil de 15m par pod il faut une charge forte (plusieurs pods de charge en parallèle). Si le seuil n'est pas atteint, le réglage à ajuster est `averageUtilization` (le baisser, par exemple à 20) ou la request CPU du Deployment.
+
+---
+
+## Partie 4 : QCM
+
+| Question | Réponse | Pourquoi |
 |---|---|---|
-| 1 | B | Un Pod regroupe un ou plusieurs conteneurs étroitement liés partageant réseau et volumes. |
-| 2 | B | `kubectl create namespace <nom>` est la commande complète. |
-| 3 | A | Le kubelet communique avec l'API Server pour signaler et maintenir l'état des pods de son nœud. |
-| 4 | B | Une ConfigMap contient des paramètres non sensibles. |
-| 5 | B | Un CronJob déclenche des Jobs selon un calendrier. |
-| 6 | B | Un Deployment gère les ReplicaSets et les mises à jour des pods. |
-| 7 | B | kube-proxy met en œuvre les règles réseau des Services sur les nœuds. |
-| 8 | A | `kubectl logs <pod-name>` lit les journaux du conteneur. |
-| 9 | A | Un contrôleur tel qu'un Deployment recrée un pod pour rétablir l'état désiré. |
-| 10 | C | Un Secret sert aux données sensibles; son encodage base64 n'est pas un chiffrement. |
-| 11 | B | Un namespace fournit un cloisonnement logique des noms et des ressources namespacées. |
-| 12 | C | Un PersistentVolumeClaim demande une capacité et des modes d'accès. |
-| 13 | C | L'API Server expose l'API Kubernetes et constitue le point d'entrée de contrôle. |
-| 14 | B | RBAC et NetworkPolicies contribuent aux contrôles d'accès et à l'isolation; les PSP sont obsolètes dans les versions récentes, remplacées notamment par Pod Security Admission. |
-| 15 | A | Les requests influencent le placement; des limites CPU trop basses peuvent provoquer du throttling. |
-| Bonus | C | Les Secrets sont encodés en base64 dans etcd et ne sont pas chiffrés par défaut sans configuration additionnelle. |
+| 1 | B | Un Pod est un groupe d'un ou plusieurs conteneurs qui partagent réseau et volumes. |
+| 2 | B | `kubectl create namespace <nom>` (la forme `ns` marche aussi, c'est un alias). |
+| 3 | A | Le kubelet de chaque nœud communique avec l'API Server. |
+| 4 | B | Une ConfigMap stocke de la configuration non sensible. |
+| 5 | B | Un CronJob lance des Jobs selon un planning. |
+| 6 | B | Un Deployment gère les ReplicaSets et donc les mises à jour des pods. |
+| 7 | B | kube-proxy met en place le routage des Services vers les pods. |
+| 8 | A | `kubectl logs <pod-name>`. |
+| 9 | A | Un pod géré par un Deployment/ReplicaSet est recréé. |
+| 10 | C | Un Secret sert pour les données sensibles. |
+| 11 | B | Un namespace découpe le cluster en environnements virtuels. |
+| 12 | C | PersistentVolumeClaim. |
+| 13 | C | L'API Server expose l'API REST et sert de point d'entrée à toutes les opérations. |
+| 14 | B | RBAC, Network Policies et sécurité des pods (les PSP sont dépréciées, remplacées par Pod Security Admission). |
+| 15 | A | Des requests trop basses entraînent trop de pods sur un nœud, des limits trop basses du throttling. |
+| Bonus | C | Les Secrets sont en base64 dans etcd mais pas chiffrés par défaut. |
 
-## Partie 5 — application « production-ready »
+---
 
-Les manifests sont dans `TP/partie5`. Le Deployment `hello-kubernetes` démarre trois réplicas et son Service ClusterIP écoute sur 8080.
+## Partie 5 : application « production-ready »
+
+Manifests dans `TP/partie5/` : `namespace.yml`, `app-deployment-initial.yml` (version de départ, image 1.10, 3 replicas), `app-deployment.yml` (version finale avec resources, probes, RollingUpdate, preStop et image 1.10.1) et `app-service.yml` (ClusterIP, port 8080).
+
+### 1. Déploiement initial
 
 ```powershell
 kubectl apply -f TP/partie5/namespace.yml
@@ -208,72 +249,67 @@ kubectl get pods,svc -n prod-app
 kubectl port-forward -n prod-app svc/hello-kubernetes 8080:8080
 ```
 
-Ouvrir `http://localhost:8080` et actualiser plusieurs fois. `Pod Name` peut changer entre les réponses : le Service distribue les connexions entre les pods prêts; il ne garantit pas l'affinité vers un pod unique.
+![Pods partie 5](img/10a-partie5-pods-initial.png)
 
-Appliquer ensuite le manifest final pour ajouter les limites, les probes, le hook d'arrêt et l'image `1.10.1` :
+Les 3 pods de la version initiale (`5c45f7856c`) sont `Running 1/1` et le port-forward est lancé. On voit aussi un quatrième pod en `Error` avec plusieurs redémarrages : il vient d'un essai précédent avec la version finale (voir plus bas).
+
+**Que remarque-t-on sur « Pod Name » ?**
+`kubectl port-forward svc/...` ne fait pas d'équilibrage de charge. kubectl choisit un seul pod derrière le Service au moment d'ouvrir le tunnel et envoie tout dessus, donc le nom du pod reste en général le même à chaque rafraîchissement, même avec 3 replicas. Le Service, lui, répartit bien le trafic entre les pods (via kube-proxy), mais le port-forward court-circuite ça. Pour le vérifier depuis l'intérieur du cluster :
 
 ```powershell
+kubectl run test --rm -it --image=busybox:1.36 --restart=Never -n prod-app -- /bin/sh -c "for i in 1 2 3 4 5 6; do wget -qO- http://hello-kubernetes:8080 | grep -i pod; done"
+```
+
+### 2. Requests et limits (QoS)
+
+Requests : CPU 100m, mémoire 64Mi. Limits : CPU 200m, mémoire 128Mi.
+
+**Quelle classe de QoS, et pourquoi viser au moins Burstable ?**
+Le pod est en **Burstable** : il a des requests et des limits, mais elles ne sont pas égales (`Guaranteed` demanderait requests = limits, `BestEffort` aucune valeur). En production il faut viser au moins Burstable parce qu'un pod `BestEffort` n'a aucune ressource réservée et il est le premier évincé quand le nœud manque de mémoire. Avec des requests, le scheduler sait où le placer, et avec des limits il ne peut pas manger toutes les ressources du nœud.
+
+### 3. Probes
+
+Dans `app-deployment.yml` : `livenessProbe` HTTP GET `/healthz` sur le port 8080, `readinessProbe` HTTP GET `/ready` avec `initialDelaySeconds: 10`.
+
+**Que se passe-t-il si l'appli se bloque (deadlock) sans crasher ? Comment la liveness aide ?**
+Le processus tourne toujours, donc Kubernetes ne voit rien et le pod reste dans le Service sans répondre. Avec la `livenessProbe`, `/healthz` ne répond plus, et après plusieurs échecs le kubelet redémarre le conteneur, ce qui règle le blocage tout seul.
+
+**Différence entre un échec de liveness et de readiness ?**
+Échec de liveness : le conteneur est **redémarré** par le kubelet. Échec de readiness : le conteneur n'est **pas redémarré**, mais le pod est retiré des endpoints du Service et ne reçoit plus de trafic tant qu'il n'est pas prêt. C'est donc le **Service** (via les EndpointSlices / kube-proxy) qui arrête d'envoyer du trafic.
+
+### 4. Ce qui s'est passé quand j'ai appliqué la version finale
+
+```powershell
+kubectl get pods -n prod-app -w
 kubectl apply -f TP/partie5/app-deployment.yml
-kubectl get pods -n prod-app -w
 ```
 
-Cette application remplace l'image initiale par `1.10.1` avec une stratégie RollingUpdate. La commande `kubectl get pods -w` permet d'observer le remplacement. La liveness probe et la readiness probe apparaissent avec cette version finale du Deployment.
+![Apply de la version finale](img/12a-partie5-apply-final.png)
 
-### Ressources et QoS
+![Nouveau pod](img/12b-partie5-nouveau-pod-0sur1.png)
 
-Les requests sont `100m` CPU et `64Mi`; les limits sont `200m` CPU et `128Mi`. La QoS est **Burstable**, car requests et limits sont définies mais ne sont pas égales. Au minimum Burstable, les demandes sont prises en compte par le scheduler et le conteneur dispose de plafonds; en situation de pression mémoire, BestEffort est évincé avant Burstable.
+**Point de blocage.** Avec la version finale, le nouveau pod (`hello-kubernetes-5b9b4d9c56-...`) ne passe pas à `1/1` : il reste en `0/1` et redémarre (`RESTARTS` qui augmente, statut `Error` sur la capture 10a). Les 3 anciens pods continuent de tourner, ce qui est le comportement attendu avec `maxUnavailable: 0` : le RollingUpdate ne supprime pas les anciens pods tant que le nouveau n'est pas prêt, donc il n'y a pas de coupure.
 
-### Probes
+**Rôle de la readiness dans un RollingUpdate sans interruption ?**
+Kubernetes ne retire un ancien pod que quand le nouveau est `Ready`. Sans readiness probe, un pod est « prêt » dès que son conteneur démarre, même si l'appli n'est pas encore capable de répondre, et le trafic arriverait trop tôt (erreurs 503) alors que les anciens pods sont déjà supprimés. Avec `maxSurge: 1` et `maxUnavailable: 0`, on garde toujours au moins 3 pods prêts. Ce qu'on a vu sur la capture 12b (le nouveau pod à `0/1` pendant que les anciens restent `1/1`) illustre exactement ça.
 
-La liveness probe interroge `/healthz`; si elle échoue assez de fois, kubelet redémarre le conteneur. Elle détecte notamment un deadlock que le processus ne signale pas par sa sortie. La readiness probe interroge `/ready` après dix secondes; lorsqu'elle échoue, le pod reste en fonctionnement mais devient non prêt. L'EndpointSlice du Service cesse alors de le proposer comme endpoint prêt. La capture des événements doit montrer l'état de la sonde après l'application du manifest :
+### 5. Arrêt gracieux (preStop)
+
+Le conteneur a un hook `preStop` : `sleep 10`.
+
+**À quoi sert le `preStop` ? Que ferait une vraie appli pendant ce temps ?**
+Il s'exécute avant l'envoi du SIGTERM. Pendant ce délai le pod est déjà retiré des Services, mais il peut finir son travail. Dans une vraie application : terminer les requêtes en cours, arrêter d'accepter de nouvelles connexions, vider les files de messages ou jobs, fermer proprement les connexions à la base de données, écrire ses logs. Le délai laisse aussi le temps à la suppression des endpoints de se propager pour qu'aucune nouvelle requête n'arrive pendant l'arrêt.
+
+### 6. Débogage avec un conteneur éphémère
+
+Commandes :
 
 ```powershell
-kubectl get pods -n prod-app
-kubectl describe pod <nom-du-pod> -n prod-app
-```
-
-### RollingUpdate et arrêt propre
-
-L'image de départ de ce dépôt est `1.10.1`. Pour observer une mise à jour en revenant à la version indiquée dans la consigne :
-
-```powershell
-kubectl apply -f TP/partie5/app-deployment-initial.yml
-kubectl get pods -n prod-app -w
-kubectl apply -f TP/partie5/app-deployment.yml
-kubectl get pods -n prod-app -w
-```
-
-La readiness probe empêche l'ancien pod d'être retiré du Service avant que le nouveau soit prêt; `maxUnavailable: 0` demande de préserver le nombre de réplicas disponibles pendant la mise à jour.
-
-Le hook `preStop` attend dix secondes afin de laisser finir le retrait du pod et la propagation de la suppression des endpoints avant l'arrêt. En production, l'application devrait cesser d'accepter de nouvelles requêtes, terminer celles en cours et libérer proprement ses ressources.
-
-### Débogage éphémère
-
-L'image applicative n'a pas nécessairement `curl`. Le conteneur de débogage éphémère évite d'ajouter des outils inutiles à l'image de production et de les maintenir ou de les exposer en permanence :
-
-```powershell
-kubectl debug -it <nom-du-pod> -n prod-app --image=busybox:1.36 --target=hello-kubernetes
-```
-
-Dans son shell :
-
-```sh
+kubectl exec -n prod-app <pod> -- curl localhost:8080          # curl n'est pas dans l'image de l'application (comme l'indique le sujet)
+kubectl debug -it <pod> -n prod-app --image=busybox:1.36 --target=hello-kubernetes
+# dans le shell de debug :
 wget -O - http://localhost:8080
 ```
 
-Cette méthode réduit la taille et la surface d'attaque de l'image applicative. L'ajout d'un conteneur éphémère nécessite toutefois les permissions RBAC appropriées et l'image de débogage doit elle aussi provenir d'une source de confiance.
-
-### Captures demandées
-
-À produire uniquement après démarrage réel du cluster :
-
-1. Page `hello-kubernetes` sur `localhost:8080` avec plusieurs valeurs `Pod Name`.
-2. Événements de la readiness probe dans `kubectl describe pod`.
-3. Remplacement progressif des pods pendant le RollingUpdate (`kubectl get pods -w`).
-4. Réponse `wget` depuis le conteneur éphémère.
-
-Ne pas présenter les schémas de consigne de `img/` comme des captures d'exécution. Enregistrer les captures réelles dans `img/` avec des noms explicites, par exemple `partie5-pods.png`.
-
-## Limites d'exécution constatées
-
-À la rédaction de ce compte-rendu, Docker Desktop ne répond pas, aucun profil Minikube n'existe et le projet n'a pas encore de dépôt Git local. Les manifests et les réponses sont préparés, mais aucune capture de déploiement ni validation sur un cluster vivant ne peut être revendiquée avant de démarrer Docker et Minikube et d'exécuter les commandes ci-dessus.
+**Pourquoi c'est mieux que d'avoir tous les outils dans l'image ?**
+Moins d'outils dans l'image de prod, c'est une surface d'attaque plus petite (un attaquant n'a pas de `curl` ou de shell complet sous la main), une image plus légère et avec moins de failles à corriger. L'image reste la même partout, on ne la reconstruit pas pour déboguer. Et les outils n'existent que le temps du diagnostic, dans un conteneur éphémère qui disparaît avec le pod, sans toucher au conteneur de l'application. L'usage reste contrôlé par les droits RBAC.
